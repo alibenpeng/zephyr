@@ -101,7 +101,7 @@ static CO_SDO_abortCode_t canopen_odf_1f50(CO_ODF_arg_t *odf_arg)
 			return CO_SDO_AB_HW;
 		}
 		ctx.flash_status = FLASH_STATUS_IN_PROGRESS;
-		if (IS_ENABLED(CONFIG_CANOPENNODE_LEDS)) {
+		if (IS_ENABLED(CONFIG_CANOPENNODE_LEDS_ENABLE)) {
 			canopen_leds_program_download(true);
 		}
 		ctx.total = odf_arg->dataLengthTotal;
@@ -189,7 +189,7 @@ static inline CO_SDO_abortCode_t canopen_program_cmd_clear(void)
 	if (!IS_ENABLED(CONFIG_IMG_ERASE_PROGRESSIVELY)) {
 		LOG_DBG("erasing flash area");
 
-		err = boot_erase_img_bank(FLASH_AREA_ID(image_1));
+		err = boot_erase_img_bank(FIXED_PARTITION_ID(slot1_partition));
 		if (err) {
 			LOG_ERR("failed to erase image bank (err %d)", err);
 			CO_errorReport(ctx.em, CO_EM_NON_VOLATILE_MEMORY,
@@ -344,9 +344,9 @@ static CO_SDO_abortCode_t canopen_odf_1f56(CO_ODF_arg_t *odf_arg)
 	 * started upon receiveing the next 'start' command.
 	 */
 	if (ctx.flash_written) {
-		fa_id = FLASH_AREA_ID(image_1);
+		fa_id = FIXED_PARTITION_ID(slot1_partition);
 	} else {
-		fa_id = FLASH_AREA_ID(image_0);
+		fa_id = FIXED_PARTITION_ID(slot0_partition);
 	}
 
 	err = boot_read_bank_header(fa_id, &header, sizeof(header));
