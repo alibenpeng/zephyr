@@ -720,6 +720,7 @@ config CANOPENNODE_CRC16_ENABLE
 config CANOPENNODE_CRC16_EXTERNAL
 	bool "CRC16 external"
 	depends on CANOPENNODE_CRC16_ENABLE
+	default y
 	help
 	  CO_CONFIG_CRC16_EXTERNAL - CRC functions are defined externally
 

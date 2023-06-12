@@ -81,22 +81,31 @@ static void canopen_detach_all_rx_filters(CO_CANmodule_t *CANmodule)
 	}
 }
 
-static void canopen_rx_callback(const struct device *dev, struct can_frame *frame, void *arg)
+static void canopen_rx_callback(const struct device *dev, struct can_frame *frame, void *user_data)
 {
-	CO_CANrx_t *buffer = (CO_CANrx_t *)arg;
+	CO_CANmodule_t *CANmodule = (CO_CANmodule_t *)user_data;
 	CO_CANrxMsg_t rxMsg;
+	CO_CANrx_t *buffer;
+	int i;
 
 	ARG_UNUSED(dev);
 
-	if (!buffer || !buffer->pFunct) {
-		LOG_ERR("failed to process CAN rx callback");
-		return;
-	}
+	/* Loop through registered rx buffers in priority order */
+	for (i = 0; i < CANmodule->rx_size; i++) {
+		buffer = &CANmodule->rx_array[i];
 
-	rxMsg.ident = frame->id;
-	rxMsg.DLC = frame->dlc;
-	memcpy(rxMsg.data, frame->data, frame->dlc);
-	buffer->pFunct(buffer->object, &rxMsg);
+		if (buffer->filter_id == -ENOSPC || buffer->pFunct == NULL) {
+			continue;
+		}
+
+		if (((frame->id ^ buffer->ident) & buffer->mask) == 0U) {
+			rxMsg.ident = frame->id;
+			rxMsg.DLC = frame->dlc;
+			memcpy(rxMsg.data, frame->data, frame->dlc);
+			buffer->pFunct(buffer->object, &rxMsg);
+			break;
+		}
+	}
 }
 
 static void canopen_tx_callback(const struct device *dev, int error, void *arg)
@@ -184,12 +193,12 @@ void CO_CANsetNormalMode(CO_CANmodule_t *CANmodule)
 
 CO_ReturnError_t CO_CANmodule_init(
 	CO_CANmodule_t *CANmodule,
-	void *CANdriverState,
+				   void *CANdriverState,
 	CO_CANrx_t rxArray[],
 	uint16_t rxSize,
 	CO_CANtx_t txArray[],
 	uint16_t txSize,
-	uint16_t CANbitRate)
+				   uint16_t CANbitRate)
 {
 	struct canopen_context *ctx = (struct canopen_context *)CANdriverState;
 	uint16_t i;
@@ -283,8 +292,8 @@ CO_ReturnError_t CO_CANrxBufferInit(
 	uint16_t ident,
 	uint16_t mask,
 	bool_t rtr,
-	void *object,
-	CO_CANrxBufferCallback_t pFunct)
+				void *object,
+				CO_CANrxBufferCallback_t pFunct)
 {
 	struct can_filter filter;
 	CO_CANrx_t *buffer;
@@ -303,6 +312,8 @@ CO_ReturnError_t CO_CANrxBufferInit(
 	buffer = &CANmodule->rx_array[index];
 	buffer->object = object;
 	buffer->pFunct = pFunct;
+	buffer->ident = ident;
+	buffer->mask = mask;
 
 	filter.flags = (rtr ? CAN_FILTER_RTR : CAN_FILTER_DATA);
 	filter.id = ident;
@@ -314,7 +325,7 @@ CO_ReturnError_t CO_CANrxBufferInit(
 
 	buffer->filter_id = can_add_rx_filter(CANmodule->dev,
 					      canopen_rx_callback,
-					      buffer, &filter);
+					      CANmodule, &filter);
 	if (buffer->filter_id == -ENOSPC) {
 		LOG_ERR("failed to add CAN rx callback, no free filter");
 		CO_errorReport(CANmodule->em, CO_EM_MEMORY_ALLOCATION_ERROR,
