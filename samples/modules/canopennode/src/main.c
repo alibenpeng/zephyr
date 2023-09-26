@@ -193,36 +193,51 @@ static void config_button(void)
  * The main application thread is responsible for initializing the
  * CANopen stack and doing the non real-time processing.
  */
-int main(void)
+void main(void)
 {
 	CO_NMT_reset_cmd_t reset = CO_RESET_NOT;
 	CO_ReturnError_t err;
 	struct canopen_context can;
-	uint16_t timeout;
+	uint32_t timeout;
 	uint32_t elapsed;
 	int64_t timestamp;
 #ifdef CONFIG_CANOPENNODE_STORAGE
 	int ret;
 #endif /* CONFIG_CANOPENNODE_STORAGE */
+	uint32_t heapMemoryUsed = 0;
+	void *CANmoduleAddress = NULL;
+	uint8_t activeNodeId = CONFIG_CANOPEN_NODE_ID;
+	uint8_t pendingNodeId = CONFIG_CANOPEN_NODE_ID;
+	uint16_t pendingBitRate = 125;
 
 	can.dev = CAN_INTERFACE;
 	if (!device_is_ready(can.dev)) {
 		LOG_ERR("CAN interface not ready");
-		return 0;
+		return;
 	}
+	CANmoduleAddress = (void *)&can;
+
+	/* Allocate memory */
+
+	err = CO_new(&heapMemoryUsed);
+	if (err != CO_ERROR_NO) {
+		LOG_ERR("Error: Can't allocate memory\n");
+		return;
+	}
+	LOG_INF("Allocated %d bytes for CANopen objects\n", heapMemoryUsed);
 
 #ifdef CONFIG_CANOPENNODE_STORAGE
 	ret = settings_subsys_init();
 	if (ret) {
 		LOG_ERR("failed to initialize settings subsystem (err = %d)",
 			ret);
-		return 0;
+		return;
 	}
 
 	ret = settings_load();
 	if (ret) {
 		LOG_ERR("failed to load settings (err = %d)", ret);
-		return 0;
+		return;
 	}
 #endif /* CONFIG_CANOPENNODE_STORAGE */
 
@@ -233,10 +248,17 @@ int main(void)
 	while (reset != CO_RESET_APP) {
 		elapsed =  0U; /* milliseconds */
 
-		err = CO_init(&can, CONFIG_CANOPEN_NODE_ID, CAN_BITRATE);
+		err = CO_CANinit(CANmoduleAddress, pendingBitRate);
 		if (err != CO_ERROR_NO) {
 			LOG_ERR("CO_init failed (err = %d)", err);
-			return 0;
+			return;
+		}
+
+		activeNodeId = pendingNodeId;
+		err = CO_CANopenInit(activeNodeId);
+		if (err != CO_ERROR_NO && err != CO_ERROR_NODE_ID_UNCONFIGURED_LSS) {
+			LOG_ERR("Error: CANopen initialization failed: %d\n", err);
+			return;
 		}
 
 		LOG_INF("CANopen stack initialized");
@@ -259,7 +281,7 @@ int main(void)
 		while (true) {
 			timeout = 1U; /* default timeout in milliseconds */
 			timestamp = k_uptime_get();
-			reset = CO_process(CO, (uint16_t)elapsed, &timeout);
+			reset = CO_process(CO, elapsed * 1000, &timeout);
 
 			if (reset != CO_RESET_NOT) {
 				break;
